@@ -1,0 +1,59 @@
+# Smart Schedule
+
+แอปจัดตารางกะพนักงานอัตโนมัติสำหรับร้านรีเทล (ออกแบบจากตารางกะจริงของ Nitori สาขา Central Westgate)
+
+Automatic shift scheduling for a ~10-person retail store. Installable web app (PWA) — works on phones, tablets and computers, offline after the first visit. UI in Thai, English and Japanese.
+
+## ทำอะไรได้บ้าง
+
+- **จัดตารางอัตโนมัติ** ทั้งเดือน ตามกฎของร้าน (ดู [docs/RULES.md](docs/RULES.md))
+- **ตรวจกฎ** ทุกครั้งที่แก้ตาราง บอกว่าวันไหน/ใครผิดกฎอะไร
+- **2 หน้าตา**
+  - *แบบเดิม* — เหมือนชีท Excel ที่ใช้อยู่ (週 / 日付 / 曜日 / DAILY SCHEDULE / OPEN / CLOSE / total)
+  - *แบบดูง่าย* — ตารางสีแยกกะเช้า/เย็น หรือดูเป็นรายวันบนมือถือ
+- **แก้เองได้** แตะช่องเพื่อเปลี่ยนกะ ใส่อบรม (TR+สาขา) ลาพักร้อน (AL) หรือรหัสอื่น ช่องที่แก้เองจะล็อกไว้ จัดอัตโนมัติใหม่ก็ไม่เปลี่ยน
+- **เตรียมเดือน** โควต้าวันหยุดของแต่ละคน วันขอหยุด วันนักขัตฤกษ์ กิจกรรม (เช่น WG Stock, POP UP START)
+- **ส่งออก** Excel (.xlsx) หน้าตาแบบเดิม พร้อมสูตรที่ยังคำนวณได้เมื่อแก้ต่อใน Excel + ชีทแบบดูง่าย, และ PDF (A3 แนวนอน)
+- **ข้อมูลอยู่ในเครื่อง** ไม่มีเซิร์ฟเวอร์ สำรอง/กู้คืนเป็นไฟล์ .json ได้ในหน้า ตั้งค่า
+
+## รหัสกะ
+
+`ชั่วโมงเข้า` + `ตัวอักษรนาที` + `ชั่วโมงทำงาน` เช่น `13C8` = เข้า 13:30 ทำงาน 8 ชม. + พัก 1 ชม. → เลิก 22:30
+
+| ตัวอักษร | A | B | C | D |
+|---|---|---|---|---|
+| นาที | :00 | :15 | :30 | :45 |
+
+- เข้าก่อน/ตรงเวลาเปิดร้าน (10:00) = นับเป็นคน **OPEN**, เลิกตอน/หลังร้านปิด (22:00) = นับเป็นคน **CLOSE**
+- `TRxx` = อบรมที่สาขา xx (นับ 8 ชม. เป็นวันทำงาน ไม่นับเป็นคนในร้าน)
+- `AL` = ลาพักร้อน (นับ 8 ชม. เป็นวันทำงาน ไม่ต่อวันทำงานติดกัน)
+
+## สำหรับนักพัฒนา
+
+```bash
+npm install
+npm run dev             # เปิดแอปที่ http://localhost:5173
+npm test                # unit tests (engine + Excel export)
+npm run build           # PWA → dist/
+npm run build:artifact  # ไฟล์ HTML ไฟล์เดียว → dist-artifact/smart-schedule.html
+```
+
+โครงสร้าง
+
+```
+src/engine/   ตรรกะทั้งหมด ไม่ขึ้นกับ UI (ย้ายไป Excel/VBA/Office Scripts ได้)
+  types.ts      โมเดลข้อมูล
+  shifts.ts     อ่านรหัสกะ, นับ OPEN/CLOSE
+  month.ts      ช่วงวันของชีท (เริ่มวันจันทร์ของสัปดาห์ที่มีวันที่ 1)
+  validate.ts   ตรวจกฎ
+  solver.ts     จัดตารางอัตโนมัติ (simulated annealing)
+src/ui/       หน้าจอ React
+src/export/   Excel (exceljs) และ PDF
+src/i18n/     ข้อความ ไทย / English / 日本語
+```
+
+### ติดตั้งเป็นแอปบนมือถือ (GitHub Pages)
+
+1. GitHub → Settings → Pages → Source: **GitHub Actions**
+2. Push ไปที่ branch `main` (หรือกด Run workflow ที่ Actions → Deploy) แอปจะอยู่ที่ `https://<user>.github.io/Smart-Schedule/`
+3. เปิดลิงก์บนมือถือ → เมนูเบราว์เซอร์ → **เพิ่มไปยังหน้าจอหลัก**
