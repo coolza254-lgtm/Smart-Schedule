@@ -1,7 +1,7 @@
 import { addDays, weekday } from './dates';
-import { getCell, isInMonth, lookback, monthDates, scheduledStaff, windowDates } from './month';
+import { getCell, isInMonth, lookback, monthDates, offRequests, scheduledStaff, windowDates } from './month';
 import { codeInfo, type CodeInfo } from './shifts';
-import type { AppData, ISODate, Issue, MonthPlan, Settings } from './types';
+import type { AppData, ISODate, Issue, MonthPlan, RequestKind, Settings } from './types';
 
 export interface DayCoverage {
   date: ISODate;
@@ -101,6 +101,17 @@ export function offDaysUsed(data: AppData, plan: MonthPlan, staffId: string): nu
   return off;
 }
 
+/**
+ * Whether a cell satisfies a request. Training or leave on a requested
+ * shift day counts as 'other' (not the person's choice, not a violation).
+ */
+export function requestStatus(info: CodeInfo, kind: RequestKind): 'met' | 'unmet' | 'other' {
+  if (kind === 'off') return info.worked ? 'unmet' : 'met';
+  if (!info.present) return info.kind === 'off' ? 'unmet' : 'other';
+  if (kind === 'morning') return info.opens ? 'met' : 'unmet';
+  return info.closes ? 'met' : 'unmet';
+}
+
 export function validate(data: AppData, plan: MonthPlan): Issue[] {
   const { settings } = data;
   const rules = settings.rules;
@@ -158,13 +169,21 @@ export function validate(data: AppData, plan: MonthPlan): Issue[] {
       if (off !== quota) issues.push({ kind: 'offQuota', severity: 'warning', staffId: s.id, params: { off, quota } });
     }
 
-    const reqs = plan.requests[s.id] ?? [];
-    for (const d of reqs) {
-      const info = codeInfo(getCell(plan, s.id, d).code, settings);
-      if (info.worked) issues.push({ kind: 'requestIgnored', severity: 'error', staffId: s.id, date: d, params: { code: getCell(plan, s.id, d).code } });
+    for (const [d, req] of Object.entries(plan.requests[s.id] ?? {}).sort(([a], [b]) => a.localeCompare(b))) {
+      if (!isInMonth(d, plan.year, plan.month)) continue;
+      const code = getCell(plan, s.id, d).code;
+      const status = requestStatus(codeInfo(code, settings), req.kind);
+      if (status === 'unmet') {
+        issues.push(
+          req.kind === 'off'
+            ? { kind: 'requestIgnored', severity: 'error', staffId: s.id, date: d, params: { code } }
+            : { kind: 'shiftRequestUnmet', severity: 'warning', staffId: s.id, date: d, params: { code: code || '—', kind: req.kind } },
+        );
+      }
     }
-    if (reqs.length > rules.maxRequestsPerPerson) {
-      issues.push({ kind: 'tooManyRequests', severity: 'warning', staffId: s.id, params: { count: reqs.length, max: rules.maxRequestsPerPerson } });
+    const offs = offRequests(plan, s.id).length;
+    if (offs > rules.maxRequestsPerPerson) {
+      issues.push({ kind: 'tooManyRequests', severity: 'warning', staffId: s.id, params: { count: offs, max: rules.maxRequestsPerPerson } });
     }
   }
   return issues;

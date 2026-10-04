@@ -83,3 +83,7 @@ export function rangeDates(start: ISODate, end: ISODate): ISODate[] {
   for (let d = start; d <= end; d = addDays(d, 1)) out.push(d);
   return out;
 }
+
+export function isWeekend(s: ISODate): boolean {
+  return weekday(s) >= 5;
+}

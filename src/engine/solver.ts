@@ -1,8 +1,8 @@
-import { weekday } from './dates';
-import { getCell, isInMonth, lookback, scheduledStaff, windowDates } from './month';
-import { codeInfo, eveningCodeFor, morningCodeFor, type CodeInfo } from './shifts';
+import { isWeekend, monthKey, prevMonth, weekday } from './dates';
+import { getCell, isInMonth, lookback, monthDates, offRequests, scheduledStaff, windowDates } from './month';
+import { codeInfo, eveningCodeFor, isHeavyShift, morningCodeFor, type CodeInfo } from './shifts';
 import { minCloseFor, minOpenFor, targetsFor } from './validate';
-import type { AppData, Cell, ISODate, MonthPlan } from './types';
+import type { AppData, Cell, ISODate, MonthPlan, RequestKind } from './types';
 
 /**
  * Automatic scheduler.
@@ -13,16 +13,29 @@ import type { AppData, Cell, ISODate, MonthPlan } from './types';
  * (or swapping two of one person's days) and keeps changes that lower the
  * cost, occasionally accepting worse ones early on to escape dead ends.
  * Several restarts run and the best schedule wins.
+ *
+ * Fairness between full-timers is part of the cost: weekends worked,
+ * heavy shifts (Wed 23:00 / Thu 08:00) and public holidays are spread in
+ * proportion to each person's working days, counting the previous two
+ * months too so imbalances even out over time.
  */
 
 export const WEIGHTS = {
   hard: 1000,
+  /** A requested morning/evening that is not given. */
+  shiftRequest: 300,
   /** Each person short of the soft target. */
   belowTarget: 20,
   /** Squared distance from the target, spreads extra people evenly. */
   spread: 3,
+  /** Full-timers: squared distance from a fair share of weekend days. */
+  weekendFairness: 8,
+  /** Full-timers: squared distance from a fair share of heavy shifts. */
+  heavyFairness: 5,
+  /** Full-timers: squared distance from a fair share of holiday work. */
+  holidayFairness: 4,
   /** Full-timers: difference between morning and evening count. */
-  balance: 2,
+  balance: 3,
   /** A run that reaches the maximum consecutive days. */
   longRun: 4,
   /** Each shift that is not the person's preferred one. */
@@ -61,7 +74,32 @@ interface Var {
   /** Info per value (index = OFF/MORNING/EVENING); for fixed cells only [0] is used. */
   infos: CodeInfo[];
   codes: string[];
+  /** isHeavyShift per entry of infos (precomputed: it parses times). */
+  heavy: boolean[];
   fixed: boolean;
+  /** Requested shift on this day (free cells only). */
+  wish?: RequestKind;
+}
+
+/** Per-person counts the fairness terms compare. */
+interface Agg {
+  weekend: number;
+  heavy: number;
+  holiday: number;
+}
+
+/** Fairness counts for one person over a past month (for carry-over). */
+function pastCounts(data: AppData, plan: MonthPlan, staffId: string): Agg & { workDays: number } {
+  const out = { weekend: 0, heavy: 0, holiday: 0, workDays: 0 };
+  for (const d of monthDates(plan.year, plan.month)) {
+    const info = codeInfo(getCell(plan, staffId, d).code, data.settings);
+    const working = info.present || info.kind === 'training';
+    if (info.worked) out.workDays++;
+    if (working && isWeekend(d)) out.weekend++;
+    if (working && plan.holidays.includes(d)) out.holiday++;
+    if (isHeavyShift(info, data.settings)) out.heavy++;
+  }
+  return out;
 }
 
 export function solve(data: AppData, plan: MonthPlan, opts: SolveOptions = {}): SolveResult {
@@ -72,19 +110,23 @@ export function solve(data: AppData, plan: MonthPlan, opts: SolveOptions = {}): 
   const D = dates.length;
   const S = staff.length;
   const inMonth = dates.map((d) => isInMonth(d, plan.year, plan.month));
+  const weekend = dates.map((d) => isWeekend(d));
+  const holiday = dates.map((d) => plan.holidays.includes(d));
   const back = lookback(data, plan.year, plan.month);
   const offInfo = codeInfo('', settings);
+  const monthLength = monthDates(plan.year, plan.month).length;
 
   // ---- Variables -------------------------------------------------------
   const vars: Var[][] = staff.map((s) => {
-    const requested = new Set(plan.requests[s.id] ?? []);
+    const offs = new Set(offRequests(plan, s.id));
     return dates.map((d, di) => {
       const cell = getCell(plan, s.id, d);
       if (!inMonth[di] || cell.locked) {
-        return { domain: [], infos: [codeInfo(cell.code, settings)], codes: [cell.code], fixed: true };
+        const ci = codeInfo(cell.code, settings);
+        return { domain: [], infos: [ci], codes: [cell.code], heavy: [isHeavyShift(ci, settings)], fixed: true };
       }
-      if (requested.has(d)) {
-        return { domain: [], infos: [offInfo], codes: [''], fixed: true };
+      if (offs.has(d)) {
+        return { domain: [], infos: [offInfo], codes: [''], heavy: [false], fixed: true };
       }
       const m = morningCodeFor(s, d, settings);
       const e = eveningCodeFor(s, d, settings);
@@ -93,11 +135,15 @@ export function solve(data: AppData, plan: MonthPlan, opts: SolveOptions = {}): 
         if (s.canMorning) domain.push(MORNING);
         if (s.canEvening) domain.push(EVENING);
       }
+      const wish = plan.requests[s.id]?.[d]?.kind;
+      const infos = [offInfo, codeInfo(m, settings), codeInfo(e, settings)];
       return {
         domain,
-        infos: [offInfo, codeInfo(m, settings), codeInfo(e, settings)],
+        infos,
+        heavy: infos.map((ci) => isHeavyShift(ci, settings)),
         codes: ['', m, e],
         fixed: false,
+        wish: wish === 'morning' || wish === 'evening' ? wish : undefined,
       };
     });
   });
@@ -119,6 +165,31 @@ export function solve(data: AppData, plan: MonthPlan, opts: SolveOptions = {}): 
   const minClose = dates.map((d) => minCloseFor(settings, plan, d));
   const target = dates.map((d) => targetsFor(settings, plan, d));
   const quota = staff.map((s) => plan.offQuota[s.id]);
+
+  // ---- Fairness set-up (full-timers only) --------------------------------
+  const fair = staff.map((s) => !s.partTime);
+  const fairIdx = staff.map((_, i) => i).filter((i) => fair[i]);
+  const past: (Agg & { workDays: number })[] = staff.map(() => ({ weekend: 0, heavy: 0, holiday: 0, workDays: 0 }));
+  {
+    let p = prevMonth(plan.year, plan.month);
+    for (let k = 0; k < 2; k++) {
+      const prev = data.plans[monthKey(p.year, p.month)];
+      if (prev) {
+        staff.forEach((s, si) => {
+          if (!fair[si]) return;
+          const c = pastCounts(data, prev, s.id);
+          past[si].weekend += c.weekend;
+          past[si].heavy += c.heavy;
+          past[si].holiday += c.holiday;
+          past[si].workDays += c.workDays;
+        });
+      }
+      p = prevMonth(p.year, p.month);
+    }
+  }
+  // Working days are fixed by the quota, so each person's fair share is known.
+  const workDays = staff.map((_, si) => past[si].workDays + Math.max(0, monthLength - (quota[si] ?? 0)));
+  const agg: Agg[] = staff.map(() => ({ weekend: 0, heavy: 0, holiday: 0 }));
 
   const value: number[][] = staff.map(() => new Array(D).fill(OFF));
   const info = (si: number, di: number): CodeInfo => {
@@ -153,6 +224,7 @@ export function solve(data: AppData, plan: MonthPlan, opts: SolveOptions = {}): 
     return hard * WEIGHTS.hard + below * WEIGHTS.belowTarget + spread * WEIGHTS.spread;
   }
 
+  /** Cost of one person's own rules; also refreshes agg[si]. */
   function staffCost(si: number): number {
     let hard = 0;
     let soft = 0;
@@ -163,6 +235,10 @@ export function solve(data: AppData, plan: MonthPlan, opts: SolveOptions = {}): 
     let off = 0;
     let mornings = 0;
     let evenings = 0;
+    const a = agg[si];
+    a.weekend = past[si].weekend;
+    a.heavy = past[si].heavy;
+    a.holiday = past[si].holiday;
     for (let di = 0; di < D; di++) {
       const x = info(si, di);
       if (x.consecutive) {
@@ -177,6 +253,15 @@ export function solve(data: AppData, plan: MonthPlan, opts: SolveOptions = {}): 
         if (!x.worked) off++;
         if (x.present && x.opens) mornings++;
         else if (x.present && x.closes) evenings++;
+        const working = x.present || x.kind === 'training';
+        if (working && weekend[di]) a.weekend++;
+        if (working && holiday[di]) a.holiday++;
+        const v = vars[si][di];
+        if (v.fixed ? v.heavy[0] : v.heavy[value[si][di]]) a.heavy++;
+        const wish = v.wish;
+        if (wish && !((wish === 'morning' && x.present && x.opens) || (wish === 'evening' && x.present && x.closes))) {
+          soft += WEIGHTS.shiftRequest;
+        }
       }
       prev = x;
     }
@@ -184,15 +269,39 @@ export function solve(data: AppData, plan: MonthPlan, opts: SolveOptions = {}): 
     const pref = staff[si].preferredShift;
     if (pref === 'morning') soft += evenings * WEIGHTS.preference;
     else if (pref === 'evening') soft += mornings * WEIGHTS.preference;
-    else if (!staff[si].partTime) soft += Math.abs(mornings - evenings) * WEIGHTS.balance;
+    else if (fair[si]) soft += Math.abs(mornings - evenings) * WEIGHTS.balance;
     return hard * WEIGHTS.hard + soft;
+  }
+
+  /** Spread of weekend / heavy / holiday counts among full-timers. */
+  function fairnessCost(): number {
+    if (fairIdx.length < 2) return 0;
+    let totalWork = 0;
+    let wk = 0;
+    let hv = 0;
+    let hol = 0;
+    for (const i of fairIdx) {
+      totalWork += workDays[i];
+      wk += agg[i].weekend;
+      hv += agg[i].heavy;
+      hol += agg[i].holiday;
+    }
+    if (totalWork === 0) return 0;
+    let cost = 0;
+    for (const i of fairIdx) {
+      const share = workDays[i] / totalWork;
+      cost += WEIGHTS.weekendFairness * (agg[i].weekend - wk * share) ** 2;
+      cost += WEIGHTS.heavyFairness * (agg[i].heavy - hv * share) ** 2;
+      cost += WEIGHTS.holidayFairness * (agg[i].holiday - hol * share) ** 2;
+    }
+    return cost;
   }
 
   function totalCost(): number {
     let c = 0;
     for (let di = 0; di < D; di++) c += dayCost(di);
     for (let si = 0; si < S; si++) c += staffCost(si);
-    return c;
+    return c + fairnessCost();
   }
 
   // ---- Search ----------------------------------------------------------
@@ -208,7 +317,7 @@ export function solve(data: AppData, plan: MonthPlan, opts: SolveOptions = {}): 
   }
 
   const rand = mulberry32(opts.seed ?? Date.now());
-  const iterations = opts.iterations ?? 120_000;
+  const iterations = opts.iterations ?? 150_000;
   const restarts = opts.restarts ?? 4;
   const pick = <T,>(a: T[]): T => a[Math.floor(rand() * a.length)];
 
@@ -260,10 +369,11 @@ export function solve(data: AppData, plan: MonthPlan, opts: SolveOptions = {}): 
         const options = vars[si][d1].domain.filter((x) => x !== before1);
         after1 = pick(options);
       }
-      const old = staffCost(si) + dayCost(d1) + (d2 >= 0 ? dayCost(d2) : 0);
+      const savedAgg = { ...agg[si] };
+      const old = staffCost(si) + dayCost(d1) + (d2 >= 0 ? dayCost(d2) : 0) + (fair[si] ? fairnessCost() : 0);
       value[si][d1] = after1;
       if (d2 >= 0) value[si][d2] = before1;
-      const neu = staffCost(si) + dayCost(d1) + (d2 >= 0 ? dayCost(d2) : 0);
+      const neu = staffCost(si) + dayCost(d1) + (d2 >= 0 ? dayCost(d2) : 0) + (fair[si] ? fairnessCost() : 0);
       const delta = neu - old;
       if (delta <= 0 || rand() < Math.exp(-delta / temp)) {
         cost += delta;
@@ -274,6 +384,7 @@ export function solve(data: AppData, plan: MonthPlan, opts: SolveOptions = {}): 
       } else {
         value[si][d1] = before1;
         if (d2 >= 0) value[si][d2] = before2;
+        agg[si] = savedAgg;
       }
     }
     if (localBest < bestCost) {

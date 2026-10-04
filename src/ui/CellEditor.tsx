@@ -6,7 +6,9 @@ import {
   isInMonth,
   minutesToHHMM,
   morningCodeFor,
+  setRequest,
   type ISODate,
+  type RequestKind,
 } from '../engine';
 import { formatDate, useT } from '../i18n';
 import { useCurrentPlan, useStore } from '../store';
@@ -29,7 +31,7 @@ export function CellEditor({ staffId, date, onClose }: Props) {
 
   const [code, setCode] = useState(cell.code);
   const [locked, setLocked] = useState(cell.locked ?? true);
-  const [requested, setRequested] = useState((plan.requests[staffId] ?? []).includes(date));
+  const [request, setRequestKind] = useState<RequestKind | ''>(plan.requests[staffId]?.[date]?.kind ?? '');
   const [custom, setCustom] = useState('');
 
   const m = morningCodeFor(staff, date, data.settings);
@@ -47,10 +49,8 @@ export function CellEditor({ staffId, date, onClose }: Props) {
         locked: inMonth ? locked || isTrainingOrLeave : true,
         source: inMonth ? (isTrainingOrLeave ? 'fixed' : 'manual') : undefined,
       };
-      const reqs = new Set(p.requests[staffId] ?? []);
-      if (requested) reqs.add(date);
-      else reqs.delete(date);
-      p.requests[staffId] = [...reqs].sort();
+      const prev = p.requests[staffId]?.[date];
+      setRequest(p, staffId, date, request ? { kind: request, note: prev?.kind === request ? prev.note : undefined } : null);
     });
     onClose();
   };
@@ -104,17 +104,21 @@ export function CellEditor({ staffId, date, onClose }: Props) {
               <input type="checkbox" checked={locked} onChange={(ev) => setLocked(ev.target.checked)} />
               {t.lockCell}
             </label>
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={requested}
-                onChange={(ev) => {
-                  setRequested(ev.target.checked);
-                  if (ev.target.checked) setCode('');
-                }}
-              />
-              {t.requestedOff}
-            </label>
+            <div className="opt-label">{t.reqEditor}</div>
+            <div className="seg wrap">
+              {(['', 'off', 'morning', 'evening'] as const).map((k) => (
+                <button
+                  key={k || 'none'}
+                  className={request === k ? 'on' : ''}
+                  onClick={() => {
+                    setRequestKind(k);
+                    if (k === 'off') setCode('');
+                  }}
+                >
+                  {k === '' ? t.reqNoneShort : k === 'off' ? t.reqKind_off : k === 'morning' ? t.reqKind_morning : t.reqKind_evening}
+                </button>
+              ))}
+            </div>
           </>
         ) : null}
         <div className="modal-actions">

@@ -101,6 +101,14 @@ export interface DayEvent {
   color?: string;
 }
 
+/** What a person asked for on a date: a day off, or a particular shift. */
+export type RequestKind = 'off' | 'morning' | 'evening';
+
+export interface ShiftRequest {
+  kind: RequestKind;
+  note?: string;
+}
+
 export interface MonthPlan {
   year: number;
   /** 1–12 */
@@ -109,8 +117,8 @@ export interface MonthPlan {
   cells: Record<string, Record<ISODate, Cell>>;
   /** staffId -> days off wanted inside the month. */
   offQuota: Record<string, number>;
-  /** staffId -> requested days off. */
-  requests: Record<string, ISODate[]>;
+  /** staffId -> date -> request (day off is a hard rule, shifts are strong wishes). */
+  requests: Record<string, Record<ISODate, ShiftRequest>>;
   holidays: ISODate[];
   events: Record<ISODate, DayEvent>;
   /** Per-day overrides of the minimum open/close counts. */
@@ -136,6 +144,7 @@ export type IssueKind =
   | 'closeThenOpen'
   | 'offQuota'
   | 'requestIgnored'
+  | 'shiftRequestUnmet'
   | 'unavailable'
   | 'tooManyRequests'
   | 'unknownCode';

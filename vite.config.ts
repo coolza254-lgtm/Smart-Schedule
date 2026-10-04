@@ -22,7 +22,7 @@ export default defineConfig(({ mode }) => {
           name: 'Smart Schedule',
           short_name: 'Schedule',
           description: 'Automatic shift scheduling for retail stores',
-          theme_color: '#1f3a5f',
+          theme_color: '#1c2b4b',
           background_color: '#ffffff',
           display: 'standalone',
           orientation: 'any',

@@ -4,6 +4,7 @@ import SolverWorker from './engine/solver.worker.ts?worker&inline';
 import {
   createPlan,
   defaultAppData,
+  migratePlan,
   monthKey,
   refreshCarry,
   solve,
@@ -56,11 +57,12 @@ function withPlan(data: AppData, year: number, month: number): AppData {
   } else {
     refreshCarry(next, next.plans[key]);
   }
+  for (const p of Object.values(next.plans)) migratePlan(p);
   // People added after the plan was created get their default quota.
   const plan = next.plans[key];
   for (const st of next.staff) {
     plan.offQuota[st.id] ??= st.defaultOffDays;
-    plan.requests[st.id] ??= [];
+    plan.requests[st.id] ??= {};
   }
   return next;
 }

@@ -6,3 +6,5 @@ export * from './month';
 export * from './validate';
 export * from './solver';
 export * from './stats';
+export * from './audit';
+export * from './requests';

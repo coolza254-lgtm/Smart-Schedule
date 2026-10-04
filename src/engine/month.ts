@@ -7,7 +7,7 @@ import {
   rangeDates,
   weekday,
 } from './dates';
-import type { AppData, Cell, ISODate, MonthPlan, Staff } from './types';
+import type { AppData, Cell, ISODate, MonthPlan, ShiftRequest, Staff } from './types';
 
 /**
  * A month sheet starts on the Monday of the week containing the 1st (those
@@ -89,7 +89,7 @@ export function createPlan(data: AppData, year: number, month: number): MonthPla
   };
   for (const s of data.staff) {
     plan.offQuota[s.id] = s.defaultOffDays;
-    plan.requests[s.id] = [];
+    plan.requests[s.id] = {};
   }
   refreshCarry(data, plan);
   return plan;
@@ -105,6 +105,33 @@ export function refreshCarry(data: AppData, plan: MonthPlan): void {
     for (const s of data.staff) {
       const c = prev.cells[s.id]?.[d];
       setCell(plan, s.id, d, { code: c?.code ?? '', locked: true, source: 'carry' });
+    }
+  }
+}
+
+export function requestOf(plan: MonthPlan, staffId: string, date: ISODate): ShiftRequest | undefined {
+  return plan.requests[staffId]?.[date];
+}
+
+/** Dates this person asked to have off, sorted. */
+export function offRequests(plan: MonthPlan, staffId: string): ISODate[] {
+  return Object.entries(plan.requests[staffId] ?? {})
+    .filter(([, r]) => r.kind === 'off')
+    .map(([d]) => d)
+    .sort();
+}
+
+export function setRequest(plan: MonthPlan, staffId: string, date: ISODate, req: ShiftRequest | null): void {
+  const map = (plan.requests[staffId] ??= {});
+  if (req) map[date] = req;
+  else delete map[date];
+}
+
+/** Older saves kept requests as a list of day-off dates. */
+export function migratePlan(plan: MonthPlan): void {
+  for (const [sid, value] of Object.entries(plan.requests as Record<string, unknown>)) {
+    if (Array.isArray(value)) {
+      plan.requests[sid] = Object.fromEntries((value as ISODate[]).map((d) => [d, { kind: 'off' as const }]));
     }
   }
 }

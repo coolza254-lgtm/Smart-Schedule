@@ -317,7 +317,7 @@ function easySheet(wb: ExcelJS.Workbook, data: AppData, plan: MonthPlan, lang: L
         k = info.opens ? 'morning' : info.closes ? 'evening' : undefined;
       } else if (info.kind === 'training') k = 'training';
       else if (info.kind === 'leave') k = 'leave';
-      else if (!code && (plan.requests[s.id] ?? []).includes(d)) text = 'R';
+      else if (!code && plan.requests[s.id]?.[d]?.kind === 'off') text = 'R';
       cell.value = text || null;
       cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
       cell.font = { ...font, size: 8, color: { argb: text === 'R' ? 'FFD92D20' : 'FF000000' } };

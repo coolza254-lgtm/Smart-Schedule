@@ -5,6 +5,7 @@ import {
   defaultAppData,
   eveningCodeFor,
   getCell,
+  migratePlan,
   monthDates,
   monthKey,
   morningCodeFor,
@@ -131,9 +132,24 @@ describe('validator', () => {
     expect(after).toHaveLength(0);
   });
 
+  test('unmet shift request is a warning', () => {
+    const { data, plan } = emptyOctober();
+    plan.requests.IT = { '2026-10-12': { kind: 'evening' } };
+    setCell(plan, 'IT', '2026-10-12', { code: '09A8' });
+    const issue = validate(data, plan).find((i) => i.kind === 'shiftRequestUnmet');
+    expect(issue).toMatchObject({ severity: 'warning', staffId: 'IT', date: '2026-10-12' });
+  });
+
+  test('old saves with request lists are migrated', () => {
+    const { plan } = emptyOctober();
+    (plan.requests as unknown as Record<string, string[]>).MIEW = ['2026-10-03'];
+    migratePlan(plan);
+    expect(plan.requests.MIEW).toEqual({ '2026-10-03': { kind: 'off' } });
+  });
+
   test('requested day off that is worked is an error', () => {
     const { data, plan } = emptyOctober();
-    plan.requests.MIEW = ['2026-10-10'];
+    plan.requests.MIEW = { '2026-10-10': { kind: 'off' } };
     setCell(plan, 'MIEW', '2026-10-10', { code: '09A8' });
     expect(validate(data, plan).some((i) => i.kind === 'requestIgnored' && i.staffId === 'MIEW')).toBe(true);
   });
@@ -142,8 +158,9 @@ describe('validator', () => {
 describe('solver', () => {
   test('produces a schedule with no rule errors and exact off-day quotas', () => {
     const { data, plan } = emptyOctober();
-    plan.requests.MIEW = ['2026-10-10', '2026-10-11'];
-    plan.requests.JUNIOR = ['2026-10-17'];
+    plan.requests.MIEW = { '2026-10-10': { kind: 'off' }, '2026-10-11': { kind: 'off' } };
+    plan.requests.JUNIOR = { '2026-10-17': { kind: 'off' } };
+    plan.requests.IT = { '2026-10-14': { kind: 'morning' }, '2026-10-15': { kind: 'evening' } };
     setCell(plan, 'MAX', '2026-10-13', { code: 'TRIS', locked: true, source: 'fixed' });
     setCell(plan, 'KHET', '2026-10-20', { code: 'AL', locked: true, source: 'fixed' });
     plan.cells = solve(data, plan, { seed: 42 }).cells;
@@ -153,6 +170,8 @@ describe('solver', () => {
     expect(getCell(plan, 'MIEW', '2026-10-10').code).toBe('');
     expect(getCell(plan, 'MIEW', '2026-10-11').code).toBe('');
     expect(getCell(plan, 'JUNIOR', '2026-10-17').code).toBe('');
+    expect(codeInfo(getCell(plan, 'IT', '2026-10-14').code, data.settings).opens).toBe(true);
+    expect(codeInfo(getCell(plan, 'IT', '2026-10-15').code, data.settings).closes).toBe(true);
     expect(getCell(plan, 'MAX', '2026-10-13').code).toBe('TRIS');
     expect(getCell(plan, 'KHET', '2026-10-20').code).toBe('AL');
     for (const s of data.staff) expect(personStats(data, plan, s.id).offDays).toBe(plan.offQuota[s.id]);

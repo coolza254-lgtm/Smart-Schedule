@@ -4,6 +4,7 @@ import { formatDate, issueText, useT } from '../i18n';
 import { useCurrentPlan, useStore } from '../store';
 import { CellEditor } from './CellEditor';
 import { confirmDialog } from './Dialog';
+import { Icon } from './Icon';
 import { EasyView } from './EasyView';
 import { OriginalSheet } from './OriginalSheet';
 
@@ -85,11 +86,13 @@ export function ScheduleScreen() {
         )}
         <div className="spacer" />
         <button className={`status-pill ${errors.length ? 'bad' : warnings.length ? 'meh' : 'ok'}`} onClick={() => setShowIssues((v) => !v)}>
-          {errors.length === 0 && warnings.length === 0 ? `✓ ${t.allGood}` : `${errors.length ? `⚠ ${errors.length} ${t.errors}` : ''} ${warnings.length ? `· ${warnings.length} ${t.warnings}` : ''}`}
+          <Icon name={errors.length ? 'alert' : 'check'} size={15} />
+          {errors.length === 0 && warnings.length === 0 ? t.allGood : `${errors.length ? `${errors.length} ${t.errors}` : ''}${errors.length && warnings.length ? ' · ' : ''}${warnings.length ? `${warnings.length} ${t.warnings}` : ''}`}
         </button>
         <div className="menu-wrap">
           <button className="btn" onClick={() => setExportOpen((v) => !v)} disabled={busy}>
-            {busy ? t.exporting : `⇩ ${t.export}`}
+            <Icon name="download" size={17} />
+            {busy ? t.exporting : t.export}
           </button>
           {exportOpen ? (
             <div className="menu">
@@ -99,7 +102,8 @@ export function ScheduleScreen() {
           ) : null}
         </div>
         <button className="btn primary" onClick={onGenerate} disabled={generating}>
-          {generating ? t.generating : `✦ ${t.generate}`}
+          <Icon name="sparkle" size={17} />
+          {generating ? t.generating : t.generate}
         </button>
       </div>
 
@@ -107,7 +111,9 @@ export function ScheduleScreen() {
         <div className="issues-panel">
           <div className="issues-head">
             <b>{t.issuesTitle}</b>
-            <button className="icon-btn" onClick={() => setShowIssues(false)} aria-label={t.close_}>✕</button>
+            <button className="icon-btn" onClick={() => setShowIssues(false)} aria-label={t.close_}>
+              <Icon name="close" size={18} />
+            </button>
           </div>
           {issues.length === 0 ? <p className="ok-text">✓ {t.allGood}</p> : null}
           <ul>

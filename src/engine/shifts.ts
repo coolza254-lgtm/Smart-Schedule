@@ -102,3 +102,15 @@ export function eveningCodeFor(staff: Staff, date: ISODate, settings: Settings):
     (staff.partTime ? s.eveningPartTime : s.eveningDefault)
   );
 }
+
+/**
+ * A heavier-than-normal shift: staying past the usual closing shift (the
+ * Wednesday 23:00 restock) or coming in before the usual opening shift (the
+ * Thursday 08:00 refill). Fairness checks spread these evenly.
+ */
+export function isHeavyShift(info: CodeInfo, settings: Settings): boolean {
+  if (!info.shift) return false;
+  const lateLimit = hhmmToMinutes(settings.storeClose) + 30;
+  const earlyLimit = hhmmToMinutes(settings.storeOpen) - 60;
+  return info.shift.end > lateLimit || info.shift.start < earlyLimit;
+}

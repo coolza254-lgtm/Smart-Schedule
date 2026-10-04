@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   minCloseFor,
   minOpenFor,
@@ -6,7 +5,6 @@ import {
   offDaysUsed,
   scheduledStaff,
   weekday,
-  type ISODate,
 } from '../engine';
 import { formatDate, useT } from '../i18n';
 import { useCurrentPlan, useStore } from '../store';
@@ -20,23 +18,6 @@ export function MonthScreen() {
   const plan = useCurrentPlan();
   const staff = scheduledStaff(data);
   const dates = monthDates(plan.year, plan.month);
-  const [reqFor, setReqFor] = useState<string | null>(null);
-  const maxReq = data.settings.rules.maxRequestsPerPerson;
-
-  const toggleRequest = (sid: string, d: ISODate) =>
-    updatePlan((p) => {
-      const set = new Set(p.requests[sid] ?? []);
-      if (set.has(d)) set.delete(d);
-      else {
-        set.add(d);
-        // A requested day off can't keep a shift.
-        const c = p.cells[sid]?.[d];
-        if (c && c.code) p.cells[sid][d] = { code: '', source: 'request' };
-      }
-      p.requests[sid] = [...set].sort();
-    });
-
-  const lead = weekday(dates[0]);
 
   return (
     <div className="screen form-screen">
@@ -44,6 +25,9 @@ export function MonthScreen() {
         <h2>{t.offQuotaTitle}</h2>
         <p className="muted">{t.offQuotaHelp}</p>
         <p className="muted">{t.fixedHelp}</p>
+        <p className="muted">
+          {t.tabRequests}: {t.reqHelpRule}
+        </p>
         <div className="quota-list">
           {staff.map((s) => {
             const q = plan.offQuota[s.id] ?? s.defaultOffDays;
@@ -74,39 +58,6 @@ export function MonthScreen() {
             );
           })}
         </div>
-      </section>
-
-      <section className="card">
-        <h2>{t.requestsTitle}</h2>
-        <p className="muted">{t.requestsHelp}</p>
-        <div className="chips-row">
-          {staff.map((s) => {
-            const n = (plan.requests[s.id] ?? []).length;
-            return (
-              <button key={s.id} className={`pill ${reqFor === s.id ? 'on' : ''} ${n > maxReq ? 'bad' : ''}`} onClick={() => setReqFor(reqFor === s.id ? null : s.id)}>
-                {s.name} {n ? <b>· {n}</b> : null}
-              </button>
-            );
-          })}
-        </div>
-        {reqFor ? (
-          <div className="mini-cal">
-            {t.weekdaysShort.map((w) => (
-              <div key={w} className="mc-h">{w}</div>
-            ))}
-            {Array.from({ length: lead }, (_, i) => (
-              <div key={`b${i}`} />
-            ))}
-            {dates.map((d) => {
-              const on = (plan.requests[reqFor] ?? []).includes(d);
-              return (
-                <button key={d} className={`mc-d ${on ? 'on' : ''} ${plan.holidays.includes(d) ? 'holiday' : ''}`} onClick={() => toggleRequest(reqFor, d)}>
-                  {Number(d.slice(8))}
-                </button>
-              );
-            })}
-          </div>
-        ) : null}
       </section>
 
       <section className="card">

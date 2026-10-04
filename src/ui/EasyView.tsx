@@ -65,7 +65,11 @@ function EasyTable({ data, plan, issues, onCellClick, includeCarry }: Props) {
   const staff = scheduledStaff(data);
   const dates = includeCarry ? windowDates(plan.year, plan.month) : monthDates(plan.year, plan.month);
   const flagged = new Set(issues.map((i) => `${i.staffId ?? ''}|${i.date ?? ''}`));
-  const requested = (sid: string, d: ISODate) => (plan.requests[sid] ?? []).includes(d);
+  const requested = (sid: string, d: ISODate) => plan.requests[sid]?.[d]?.kind === 'off';
+  const wish = (sid: string, d: ISODate) => {
+    const k = plan.requests[sid]?.[d]?.kind;
+    return k === 'morning' || k === 'evening' ? k : null;
+  };
 
   return (
     <div className="easy-table-wrap">
@@ -133,6 +137,7 @@ function EasyTable({ data, plan, issues, onCellClick, includeCarry }: Props) {
                         </span>
                       )}
                       {cell.locked && !carry ? <span className="lock">•</span> : null}
+                      {wish(s.id, d) ? <span className={`req wish ${wish(s.id, d)}`}>{wish(s.id, d) === 'morning' ? '☀' : '☾'}</span> : null}
                     </td>
                   );
                 })}
@@ -160,6 +165,8 @@ export function Legend({ t }: { t: T }) {
       <span className="chip training"><b>{t.training}</b></span>
       <span className="chip leave"><b>{t.leave}</b></span>
       <span className="req">R</span> {t.requestedOff}
+      <span className="req morning">☀</span> {t.reqKind_morning}
+      <span className="req evening">☾</span> {t.reqKind_evening}
       <span className="lock">•</span> 🔒
       <span className="cov ok">☀ {t.open}</span>
       <span className="cov ok">☾ {t.close}</span>
@@ -217,6 +224,11 @@ function EasyDays({ data, plan, issues, onCellClick }: Props) {
                         <span className="pn">{p.name}{p.mgr ? <sup>M</sup> : null}</span>
                         <span className="pc">{p.info.shift ? `${minutesToHHMM(p.info.shift.start)}–${minutesToHHMM(p.info.shift.end)}` : p.code}</span>
                         {p.locked ? <span className="lock">•</span> : null}
+                        {plan.requests[p.id]?.[d] && plan.requests[p.id][d].kind !== 'off' ? (
+                          <span className={`req ${plan.requests[p.id][d].kind}`} style={{ marginTop: 2 }}>
+                            {plan.requests[p.id][d].kind === 'morning' ? `☀ ${t.reqKind_morning}` : `☾ ${t.reqKind_evening}`}
+                          </span>
+                        ) : null}
                       </button>
                     ))}
                   </div>
@@ -230,7 +242,7 @@ function EasyDays({ data, plan, issues, onCellClick }: Props) {
                   {groups.off.map((p) => (
                     <button key={p.id} className="person off" onClick={onCellClick ? () => onCellClick(p.id, d) : undefined}>
                       <span className="pn">{p.name}</span>
-                      {(plan.requests[p.id] ?? []).includes(d) ? <span className="req">R</span> : null}
+                      {plan.requests[p.id]?.[d]?.kind === 'off' ? <span className="req">R</span> : null}
                     </button>
                   ))}
                 </div>
