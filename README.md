@@ -59,5 +59,5 @@ src/i18n/     ข้อความ ไทย / English / 日本語
 ### ติดตั้งเป็นแอปบนมือถือ (GitHub Pages)
 
 1. GitHub → Settings → Pages → Source: **GitHub Actions**
-2. Push ไปที่ branch `main` (หรือกด Run workflow ที่ Actions → Deploy) แอปจะอยู่ที่ `https://<user>.github.io/Smart-Schedule/`
+2. ทุกครั้งที่ push เข้า default branch ระบบจะ deploy ให้เอง (หรือกด Run workflow ที่ Actions → Deploy to GitHub Pages) แอปจะอยู่ที่ https://coolza254-lgtm.github.io/Smart-Schedule/
 3. เปิดลิงก์บนมือถือ → เมนูเบราว์เซอร์ → **เพิ่มไปยังหน้าจอหลัก**
