@@ -15,6 +15,8 @@ const fonts = pick(/<link rel="stylesheet" href="https:\/\/fonts\.googleapis\.co
 const styles = pick(/<style[\s\S]*?<\/style>/g);
 const scripts = pick(/<script[\s\S]*?<\/script>/g);
 
-const out = [...title, ...fonts, ...styles, body.trim(), ...scripts].join('\n');
+// Bundled libraries contain a literal U+FFFD (inside JS strings); write it as
+// the equivalent escape so the file has no replacement characters.
+const out = [...title, ...fonts, ...styles, body.trim(), ...scripts].join('\n').replaceAll('\uFFFD', '\\uFFFD');
 writeFileSync('dist-artifact/smart-schedule.html', out);
 console.log(`dist-artifact/smart-schedule.html: ${(out.length / 1024).toFixed(0)} KB`);
